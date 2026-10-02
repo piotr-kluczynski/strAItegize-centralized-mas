@@ -4,7 +4,7 @@ from langchain.chat_models import init_chat_model
 from langchain.messages import SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 
-from shared.human import human
+from strAItegize_common.others.human import human
 
 from general_agent import get_general_agent
 from prompts import leader_agent_prompt

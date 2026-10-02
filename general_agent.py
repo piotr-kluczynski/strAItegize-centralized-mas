@@ -2,9 +2,8 @@ from typing import Literal
 from langchain.chat_models import init_chat_model
 from langchain.messages import SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
-from langgraph.checkpoint.memory import InMemorySaver
 
-from shared.human import human
+from strAItegize_common.others.human import human
 
 from states import GeneralState, GeneralOutputState
 from prompts import general_agent_prompt

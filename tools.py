@@ -4,8 +4,8 @@ from langchain.tools import InjectedState
 from langchain_core.runnables import RunnableConfig
 from typing import Annotated, Literal
 
-from shared.order import Order
-from shared.recruitment_choice import RecruitmentChoice
+from strAItegize_common.others.order import Order
+from strAItegize_common.others.recruitment_choice import RecruitmentChoice
 from communication.communication import Communication
 
 from utils import describe_order

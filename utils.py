@@ -1,6 +1,6 @@
 from pydantic import BaseModel, Field
 from typing import Literal
-from shared.order import Order
+from strAItegize_common.others.order import Order
 
 def describe_order(order: Order) -> str:
     if order.order_type == "move":

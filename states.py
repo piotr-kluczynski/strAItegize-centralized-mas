@@ -3,8 +3,8 @@ from langgraph.graph import StateGraph
 from langgraph.graph.message import add_messages
 from langchain_core.messages import BaseMessage
 
-from shared.recruitment_choice import RecruitmentChoice
-from shared.order import Order
+from strAItegize_common.others.recruitment_choice import RecruitmentChoice
+from strAItegize_common.others.order import Order
 
 class LeaderInputState(TypedDict):
     """

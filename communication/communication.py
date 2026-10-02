@@ -1,18 +1,18 @@
 import socket
 
-from shared.communication.models import ObserveUnitRequest, ObserveUnitResponse
-from shared.communication.models import ObserveRegionRequest, ObserveRegionResponse
-from shared.communication.models import GetUnitsRequest, GetUnitsResponse
-from shared.communication.models import GetRegionsRequest, GetRegionsResponse
-from shared.communication.models import GetUnitDetailsRequest, GetUnitDetailsResponse
-from shared.communication.models import GetRegionDetailsRequest, GetRegionDetailsResponse
-from shared.communication.models import GetPlayersRequest, GetPlayersResponse
-from shared.communication.models import IssueOrdersReuqest, IssueOrdersResponse
-from shared.communication.models import MessagePlayerRequest, MessagePlayerResponse
-from shared.communication.models import GetPlayerConversationRequest, GetPlayerConversationResponse
-from shared.communication.models import ErrorResponse
+from strAItegize_common.communication.models import ObserveUnitRequest, ObserveUnitResponse
+from strAItegize_common.communication.models import ObserveRegionRequest, ObserveRegionResponse
+from strAItegize_common.communication.models import GetUnitsRequest, GetUnitsResponse
+from strAItegize_common.communication.models import GetRegionsRequest, GetRegionsResponse
+from strAItegize_common.communication.models import GetUnitDetailsRequest, GetUnitDetailsResponse
+from strAItegize_common.communication.models import GetRegionDetailsRequest, GetRegionDetailsResponse
+from strAItegize_common.communication.models import GetPlayersRequest, GetPlayersResponse
+from strAItegize_common.communication.models import IssueOrdersReuqest, IssueOrdersResponse
+from strAItegize_common.communication.models import MessagePlayerRequest, MessagePlayerResponse
+from strAItegize_common.communication.models import GetPlayerConversationRequest, GetPlayerConversationResponse
+from strAItegize_common.communication.models import ErrorResponse
 
-from shared.communication.transport import send_message, receive_message
+from strAItegize_common.communication.transport import send_message, receive_message
 from typing import Literal
 
 class Communication:
