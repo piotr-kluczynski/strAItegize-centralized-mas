@@ -1,10 +1,13 @@
 from typing import Literal
 
+from pydantic import ValidationError
+
 from langchain.chat_models import init_chat_model
 from langchain.messages import SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 
 from strAItegize_common.others.human import human
+from strAItegize_common.others.recruitment_choice import RecruitmentChoice
 
 from general_agent import get_general_agent
 from prompts import leader_agent_prompt
@@ -37,16 +40,19 @@ def input_node(state: LeaderInputState) -> LeaderState:
         Leader state, without additional information about the round
     """
     global leader_tools, available_leader_tools, tools_by_name
-    leader_messages = []
 
     # Dynamically reducing tools if invokation happened as result of the unit recruitment process
+    available_leader_tools = leader_tools
+    
     if state["upkeep_phase"]:
         available_leader_tools = [tool for tool in leader_tools if tool.name not in ["DelegateGeneral", "get_order_list", "get_recent_events"]]
+    else: 
+        available_leader_tools = [tool for tool in leader_tools if tool.name != "RecruitUnit"]
 
     tools_by_name = {tool.name: tool for tool in available_leader_tools}
 
     return {
-        "leader_messages": leader_messages,
+        "leader_messages": state["leader_messages"],
         "player_id": state["player_id"],
         "recent_events": state["recent_events"],
         "order_list": state["order_list"],
@@ -121,10 +127,28 @@ def tool_node(state: LeaderState) -> LeaderState:
             general_id = tool_call["args"]["general_id"]
             command = tool_call["args"]["command"]
 
+            # Verifying that General with given general_id exists
+            if general_id not in state["generals_messages"].keys():
+                observations.append(f"Invalid input data provided for tool: {tool_call["name"]}. \r\nDetails: General Agent with provided general_id does not exist.")
+                continue
+
+
+            # Creating special Unit:Order dict for General Agent
+            general_units_orders = {}
+            for unit in state["generals_units"][general_id]:
+                order = [order for order in state["order_list"] if order.unit_id == unit]
+                if len(order) == 0:
+                    order = None
+                else:
+                    order = order[0]
+
+                general_units_orders[unit] = order
+
             general_input_state = GeneralState(
+                general_id=general_id,
                 general_messages=state["generals_messages"][general_id],
                 received_orders=command,
-                controlled_units=state["generals_units"][general_id]
+                controlled_units=general_units_orders 
             )
 
             general_output_state = get_general_agent(general_tools, human_mode=HUMAN_MODE).invoke(general_input_state)
@@ -134,28 +158,34 @@ def tool_node(state: LeaderState) -> LeaderState:
 
             # Updating orders list
             for order in general_output_state["controlled_units"].values():
-                state["order_list"].append(order)
+                if order is not None:
+                    state["order_list"].append(order)
 
             observations.append(general_output_state["report"])
         elif tool_call["name"] == "RecruitUnit":
             recruitment_choice = tool_call["args"]["recruitment_choice"]
 
-            state["recruitment_choice"].append(recruitment_choice)
-
-            observations.append(f"Unit recruitment choice: {recruitment_choice.region}(region): {recruitment_choice.unit_type}(unit type) was successfuly added to the list.")
-        
-        elif tool_call["name"] == "MessagePlayer":
-            # Use outer functions to send message to another player within simultion
-            pass
-        elif tool_call["name"] == "get_units":
-            args = {
-                **tool_call["args"],
-                "sender_agent": "leader"
-            }
-            observations.append(tool.invoke(args, config={"configurable": {"state": state}}))
+            # Casting recruitment choice to the appropriate pydantic model
+            try:
+                recruitment_choice = RecruitmentChoice.model_validate(recruitment_choice)
+                state["recruitment_choice"].append(recruitment_choice)
+                observations.append(f"Unit recruitment choice: {recruitment_choice.region}(region): {recruitment_choice.unit_type}(unit type) was successfuly added to the list.")
+            except ValidationError as e:
+                observations.append(f"Invalid input data provided for tool: {tool_call["name"]}. \r\nDetails: {e.errors()}")
         else:
-            observations.append(tool.invoke(tool_call["args"], config={"configurable": {"state": state}}))
+            # Injecting state schema if needed
+            args = {**tool_call["args"]}
 
+            # Collecting argument names
+            arg_fields = {name for name, _ in tool.get_input_schema().model_fields.items()}
+
+            if "state" in arg_fields:
+                args["state"] = state
+            if "sender_agent" in arg_fields:
+                args["sender_agent"] = "leader"
+
+            observations.append(tool.invoke(args))
+            
     tool_outputs = [
         ToolMessage(
             content=observation,
@@ -183,21 +213,6 @@ def output_node(state: LeaderState) -> LeaderOutputState:
         generals_messages=state["generals_messages"],
         recruitment_choice=state["recruitment_choice"]
     )
-
-def upkeep_condition(state: LeaderState) -> Literal["leader", "output_node"]:
-    """Decides whether to continue the graph loop, depending on whether the graph call was 
-       a result of a recruitment procedure or not.
-    
-        Args:
-            state: Current Leader State with the list of messages, controlled regions, currently assigned orders and list of sub-agents.
-        
-        Returns:
-            The text description of the next node for navigation.
-    """
-
-    if state["recruitment_response"]:
-        return "output_node"
-    return "leader"
 
 def tool_condition(state: LeaderState) -> Literal["tool_node", "output_node"]:
     """Decides whether to continue the graph loop, based on or on the lack of tool calls.
@@ -239,6 +254,7 @@ def get_leader_agent(communication, human_mode=False):
 
     leader_agent_builder.add_edge(START, "input_node")
     leader_agent_builder.add_edge("input_node", "leader")
+    leader_agent_builder.add_edge("tool_node", "leader")
     leader_agent_builder.add_edge("output_node", END)
 
     leader_agent_builder.add_conditional_edges(

@@ -1,17 +1,22 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import argparse
+
 from game_controller import GameController
 
-HUMAN_MODE = True
+# Setting up app console line parameters
+parser = argparse.ArgumentParser(prog="StrAItegize - Centralized Multi-Agent System")
+
+parser.add_argument("-p", "--port", help="Client port shared by the simulation program to connect to.", type=int, required=True)
+parser.add_argument("-d", "--debug", help="If True, during agent invocation, the user takes its place using console line, otherwise all agent calls are directed to the OpenAI LLM.", type=bool, default=True, required=False)
+
+args = parser.parse_args()
 
 if __name__ == '__main__':
     print("Welcome to the Centralized Multi-Agent System Architecture!")
-    simulation_port = input("Enter the port of the empty player slot from the simulation app:\r\n")
-
-    game_controler = GameController(simulation_port, human_mode=HUMAN_MODE)
+    game_controler = GameController(simulation_port=args['port'], human_mode=args['debug'])
 
     game_controler.initialize_simulation()
 
     game_controler.start_simulation()
-    game_controler.end_simulation()

@@ -236,7 +236,7 @@ def round_start_prompt(
     for i in range(len(players)):
         gamestate_desc += f"- {players[i]}\r\n"
 
-    gamestate_desc += f"Leaderboard:\r\n"
+    gamestate_desc += f"\r\nLeaderboard:\r\n"
     i = 1
     for player, score in leaderboard_dict.items():
         gamestate_desc += f"{i}. {player}: {score}\r\n"

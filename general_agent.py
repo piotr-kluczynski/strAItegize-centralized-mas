@@ -1,16 +1,20 @@
 from typing import Literal
+from pydantic import ValidationError
 from langchain.chat_models import init_chat_model
 from langchain.messages import SystemMessage, ToolMessage
 from langgraph.graph import StateGraph, START, END
 
 from strAItegize_common.others.human import human
+from strAItegize_common.others.order import Order
 
 from states import GeneralState, GeneralOutputState
 from prompts import general_agent_prompt
 
 # Setup general agent tools
+general_tools = []
+
 available_tools = []
-tools_by_name = {tool.name: tool for tool in available_tools}
+tools_by_name = {}
 
 # Initializing llm
 model = init_chat_model(
@@ -18,6 +22,21 @@ model = init_chat_model(
 )
 
 # Agent nodes
+def input_node(state: GeneralState) -> GeneralState:
+    global general_tools, available_tools, tools_by_name
+
+    # Currently there are no tools excluded from general agent
+    available_tools = general_tools
+
+    tools_by_name = {tool.name: tool for tool in available_tools}
+
+    return GeneralState(
+        general_id=state["general_id"],
+        general_messages=state["general_messages"],
+        received_orders=state["received_orders"],
+        controlled_units=state["controlled_units"]
+    )
+
 def general(state: GeneralState) -> GeneralState:
     """Makes the micro-decisions within the simulation, to fulfill received orders.
 
@@ -37,7 +56,7 @@ def general(state: GeneralState) -> GeneralState:
     return {
         "general_messages": [
             model.bind_tools(available_tools).invoke(
-                [SystemMessage(content=general_agent_prompt())] + state["general_messages"]
+                [SystemMessage(content=general_agent_prompt(state["received_orders"], state["controlled_units"]))] + state["general_messages"]
             )
         ]
     }
@@ -46,7 +65,7 @@ def human_general(state: GeneralState) -> GeneralState:
     return {
         "general_messages": 
             human(
-                [SystemMessage(content=general_agent_prompt())] + state["general_messages"],
+                [SystemMessage(content=general_agent_prompt(state["received_orders"], state["controlled_units"]))] + state["general_messages"],
                 agent_name=state["general_id"],
                 tools=available_tools
             )
@@ -75,41 +94,57 @@ def tool_node(state: GeneralState) -> GeneralState:
     for tool_call in tool_calls:
         tool = tools_by_name[tool_call["name"]]
 
-        if tool["name"] == "AssignOrder":
+        if tool.name == "AssignOrder":
             # Add new order to the list of orders
             unit_id = tool_call["args"]["unit_id"]
             unit_order = tool_call["args"]["unit_order"]
 
-            # Assigning order to the unit
-            state["controlled_units"][unit_id] = unit_order
+            # Casting unit order to the appropriate pydantic model
+            try:
+                unit_order = Order.model_validate(unit_order)
 
-            # Generating tool response
-            observations.append(f"The order was assigned to the unit {unit_id}.")
-        elif tool["name"] == "RemoveOrder":
+                # Assigning order to the unit
+                state["controlled_units"][unit_id] = unit_order
+
+                # Generating tool response
+                observations.append(f"The order was assigned to the unit {unit_id}.")
+            except ValidationError as e:
+                observations.append(f"Invalid input data provided for tool: {tool_call["name"]}. \r\nDetails: {e.errors()}")
+        elif tool.name == "RemoveOrder":
             # Remove an order from the list of orders
-            unit_id = tool["args"]["unit_id"]
+            unit_id = tool_call["args"]["unit_id"]
+
+            # Verifying that unit with given unit_id exists
+            if unit_id not in state["controlled_units"]:
+                observations.append(f"Invalid input data provided for tool: {tool_call["name"]}. \r\nDetails: Unit with given unit_id: {unit_id} does not exist or is not assigned for you to command.")
+                continue
 
             # Removing an order from the unit
             state["controlled_units"][unit_id] = None
 
             # Generating tool response
             observations.append(f"The order was removed from the unit {unit_id}.")
-        elif tool["name"] == "get_units":
-            args = {
-                **tool_call["args"],
-                "sender_agent": "general"
-            }
-            observations.append(tool.invoke(args, config={"configurable": {"state": state}}))
         else:
-            observations.append(tool.invoke(tool_call["args"], config={"configurable": {"state": state}}))
+            # Injecting state schema if needed
+            args = {**tool_call["args"]}
 
-        tool_outputs = [
-            ToolMessage(
-                content=observation,
-                name=tool_call["name"],
-                tool_call_id=tool_call["id"]
-            ) for observation, tool_call in zip(observations, tool_calls)
-        ]
+            # Collecting argument names
+            arg_fields = {name for name, _ in tool.get_input_schema().model_fields.items()}
+
+            if "state" in arg_fields:
+                args["state"] = state
+            if "sender_agent" in arg_fields:
+                args["sender_agent"] = "leader"
+
+            observations.append(tool.invoke(args))
+   
+    tool_outputs = [
+        ToolMessage(
+            content=observation,
+            name=tool_call["name"],
+            tool_call_id=tool_call["id"]
+        ) for observation, tool_call in zip(observations, tool_calls)
+    ]
 
 
     return {"general_messages": state["general_messages"] + tool_outputs}
@@ -145,7 +180,10 @@ def output_node(state: GeneralState) -> GeneralOutputState:
 
     report = f"The General Agent with general_id: {state["general_id"]}, gave the following orders to the units under their command:"
     for order in state["controlled_units"].values():
-        target_txt = f"{order.target_id}" if order.target_id != None else "None"
+        if order is None:
+            continue
+            
+        target_txt = f"{order.target_id}" if order.target_id is not None else "None"
         vec_txt = f"[{order.move_q}, {order.move_r}, {order.move_s}]" if order.move_q != None else "None"
 
         report += f"{order.order_type.capitalize()} order to the unit {order.unit_id} (movement vector: {vec_txt}, targeted unit: {target_txt})\r\n"
@@ -158,14 +196,15 @@ def output_node(state: GeneralState) -> GeneralOutputState:
 
 # Function for creating new general agents
 def get_general_agent(tools, human_mode=False):
-    global available_tools
+    global general_tools
 
     # Setting up the tools
-    available_tools = tools
+    general_tools = tools
 
     # Graph construction
     general_agent_builder = StateGraph(GeneralState, output_schema=GeneralOutputState)
 
+    general_agent_builder.add_node("input_node", input_node)
     general_agent_builder.add_node("tool_node", tool_node)
     general_agent_builder.add_node("output_node", output_node)
 
@@ -174,7 +213,9 @@ def get_general_agent(tools, human_mode=False):
     else:
         general_agent_builder.add_node("general", general)
 
-    general_agent_builder.add_edge(START, "general")
+    general_agent_builder.add_edge(START, "input_node")
+    general_agent_builder.add_edge("input_node", "general")
+    general_agent_builder.add_edge("tool_node", "general")
     general_agent_builder.add_edge("output_node", END)
 
     general_agent_builder.add_conditional_edges(
@@ -182,7 +223,7 @@ def get_general_agent(tools, human_mode=False):
         should_continue,
         {
             "tool_node": "tool_node",
-            "__end__": "output_node"
+            "output_node": "output_node"
         }
     )
 
