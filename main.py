@@ -3,7 +3,8 @@ load_dotenv()
 
 import argparse
 
-from game_controller import GameController
+from strAItegize_common.client.game_controller import GameController
+from centralized_mas import CentralizedMAS
 
 # Setting up app console line parameters
 parser = argparse.ArgumentParser(prog="StrAItegize - Centralized Multi-Agent System")
@@ -15,7 +16,7 @@ args = parser.parse_args()
 
 if __name__ == '__main__':
     print("Welcome to the Centralized Multi-Agent System Architecture!")
-    game_controler = GameController(simulation_port=args['port'], human_mode=args['debug'])
+    game_controler = GameController(simulation_port=args.port, multiagent_system=CentralizedMAS, human_mode=args.debug)
 
     game_controler.initialize_simulation()
 
