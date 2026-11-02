@@ -41,15 +41,15 @@ def leader_agent_prompt(player_id, generals, regions):
     """
 
     for region in regions:
-        leader_instructions += f"- {region}"
+        leader_instructions += f"- {region}\r\n"
 
     leader_instructions += """
     </Current Gamestate>
     <Available Tools>
     Tools provided to you fall into 4 categories:
     - Observation Tools: observe_unit, observe_region, get_units, get_regions, get_unit_details - These tools allow you to inspect the current state of the simulation.
-    - Meta Tools: get_players, get_player_conversation, get_order_list, get_recent_events, get_game_rules - These tools allow you to inspect information about the current round and the simulation session, as well as its rules.
-    - Action Tools: DelegateGeneral, MessagePlayer - These tools allow you to take strategic actions, communicate with other players, and delegate military objectives to your Generals.
+    - Meta Tools: get_players, get_order_list, get_recent_events, get_game_rules - These tools allow you to inspect information about the current round and the simulation session, as well as its rules.
+    - Action Tools: DelegateGeneral, RecruitUnit - These tools allow you to take strategic actions, and delegate military objectives to your Generals.
     - Reflection Tools: think_tool - This tool allows you to reflect on gathered information and evaluate possible courses of action.
     </Available Tools>
 
@@ -59,10 +59,9 @@ def leader_agent_prompt(player_id, generals, regions):
     1. Observe carefully: Gather the information necessary to understand the current situation of your country and its opponents.
     2. Reflect: Use think_tool to analyze the information you have gathered and identify important opportunities, threats, and uncertainties.
     3. Plan strategically: Determine which actions are most beneficial for your country in the long term.
-    4. Engage in diplomacy: Communicate with other players when cooperation, negotiation, or information exchange may benefit your country.
-    5. Give orders: Delegate clear strategic objectives to your Generals. Allow them to determine how best to execute their assigned objectives with their available forces.
-    6. Evaluate: After receiving information or results from your Generals, use think_tool to reassess the situation before taking further actions.
-    7. Stop when satisfied: Once your strategic objectives have been sufficiently addressed, stop issuing orders. Do not repeatedly modify General orders in pursuit of a theoretically perfect plan.
+    4. Give orders: Delegate clear strategic objectives to your Generals. Allow them to determine how best to execute their assigned objectives with their available forces.
+    5. Evaluate: After receiving information or results from your Generals, use think_tool to reassess the situation before taking further actions.
+    6. Stop when satisfied: Once your strategic objectives have been sufficiently addressed, stop issuing orders. Do not repeatedly modify General orders in pursuit of a theoretically perfect plan.
 
     **CRITICAL Do not confuse activity with progress. Additional observations, reflections, or orders should only be performed when they can meaningfully improve your decision or execution.**
     </Instructions>
