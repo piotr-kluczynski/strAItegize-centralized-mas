@@ -124,5 +124,4 @@ def get_leader_tools(communication: CommunicationContext) -> list:
 
         return observation
 
-    # Add MessagePlayer and get_player_conversation later
     return [RecruitUnit, DelegateGeneral, get_players, get_order_list, get_recent_events] + get_generic_tools(communication)
