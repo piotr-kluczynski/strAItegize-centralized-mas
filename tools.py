@@ -1,127 +1,165 @@
-from pydantic import BaseModel, Field
-from langchain_core.tools import tool
+from langchain_core.tools import tool, InjectedToolCallId
 from langchain.tools import InjectedState
+from langgraph.types import Command
+from langchain.messages import ToolMessage
 from typing import Annotated
 
 from strAItegize_common.others.order import Order
 from strAItegize_common.others.recruitment_choice import RecruitmentChoice
-from strAItegize_common.client.communication.communication_context import CommunicationContext
-from strAItegize_common.communication.message_types import MessageType
-
 from strAItegize_common.others.order import describe_order
-from strAItegize_common.client.tools import get_generic_tools
 
 # General-Agent Tools
-def get_general_tools(communication: CommunicationContext) -> list:
+@tool
+def assign_order(
+    unit_id: str,
+    unit_order: Order,
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId]
+) -> Command:
+    """Assign chosen order to the specified unit."""
 
-    @tool
-    class AssignOrder(BaseModel):
-        """Tool for assigning an order to the owned unit."""
-        unit_id: str = Field(
-            description="Identifier of the unit to assign order to."
-        )
+    if unit_id not in state["controlled_units"].keys():
+        return f"Error: Unit {unit_id} does not exist."    
 
-        unit_order: Order = Field(
-            description="The order to assign to the unit."
-        )
+    if state["controlled_units"][unit_id] is not None:
+        return f"Error: Unit {unit_id} has been already assigned an order."
 
-    @tool
-    class RemoveOrder(BaseModel):
-        """Tool for removing already assigned orders."""
-        unit_id: str = Field(
-            description="Identifier of the unit to remove order from."
-        )
+    return Command(
+        update={
+            "controlled_units": {
+                unit_id: unit_order
+            },
+            "general_messages": [
+                ToolMessage(
+                    content=f"Order to {unit_order.order_type} was properly assigned to unit {unit_id}.",
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
+    )
 
-    return [AssignOrder, RemoveOrder] + get_generic_tools(communication)
+@tool
+def remove_order(
+    unit_id: str,
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId]
+) -> Command:
+    """Remove already assigned order from specified unit."""
+    if unit_id not in state["controlled_units"].keys():
+        return f"Error: Unit {unit_id} does not exist."    
+    
+    if state["controlled_units"][unit_id] is None:
+        return f"Error: Unit {unit_id} has not been assigned any orders yet."
+        
+    return Command(
+        update={
+            "controlled_units": {
+                unit_id: None
+            },
+            "general_messages": [
+                ToolMessage(
+                    content=f"The order was properly removed from unit {unit_id}.",
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
+    )
 
 # Leader-Agent Tools
-def get_leader_tools(communication: CommunicationContext) -> list:
-    @tool
-    class RecruitUnit(BaseModel):
-        """Tool for adding a recruitment choice to the recruitment list."""
-        recruitment_choice: RecruitmentChoice = Field(
-            description="The choice of where to recruit which type of unit."
-        )
+@tool
+def recruit_unit(
+    unit_type: str,
+    region: str,
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId]
+) -> Command:
+    """Recruit a unit of given type in the specified region."""
+    choice = RecruitmentChoice(unit_type=unit_type, region=region)
+    current_choices = state.get("recruitment_choice", [])
 
-    @tool
-    class DelegateGeneral(BaseModel):
-        """Tool for delegating the military action to the chosen general agent."""
-        general_id: str = Field(
-            description="Identifier of the general agent."
-        )
+    return Command(
+        update={
+            "recruitment_choice": current_choices + [choice],
+            "leader_messages": [
+                ToolMessage(
+                    content=f"The recruitment order for {unit_type} in {region} region, was properly registered.",
+                    tool_call_id=tool_call_id
+                )
+            ]
+        }
+    )
 
-        command: str = Field(
-            description="Orders for the general agent to follow."
-        )
+@tool
+def delegate_general(
+    general_id: str,
+    command: str,
+    state: Annotated[dict, InjectedState],
+    tool_call_id: Annotated[str, InjectedToolCallId]
+) -> Command:
+    """Delegate tactical movement and attack orders to a General Agent."""
+    
+    # Verifying that the general exists
+    if general_id not in state["generals_messages"]:
+        return f"Error: General '{general_id}' does not exist. Available generals: {list(state['generals_units'].keys())}" 
 
-    @tool 
-    def get_players() -> list[str]:
-        """Get the list of the remaining players.
-        
-        Returns:
-            List of remaining player's identifiers.
-        """
+    # Initializing dict of controlled units for the general
+    controlled_units = {unit: None for unit in state["generals_units"][general_id]}
 
-        # Retrieving the player lit from the simulation.
-        data = communication.request_data(
-            request_type = MessageType.GetPlayers,
-            request_args = None
-        )
+    # Updating state
+    return Command(
+        update={
+            "active_general": general_id,
+            "general_id": general_id,
+            "received_orders": command,
+            "controlled_units": controlled_units,
+            "general_messages": state["generals_messages"].get(general_id),
+            "leader_messages": [
+                ToolMessage(
+                    content=f"The task was dispatched to General {general_id}.",
+                    name="delegate_general",
+                    tool_call_id=tool_call_id,
+                    id=f"tool_{tool_call_id}"
+                )
+            ]
+        }
+    )
 
-        if isinstance(data, dict):
-            if data.get("error"):
-                return f"An error has occurred during tool execution.\r\nDescription: {data["desc"]}\r\nDetails: {data['details']}"
+@tool
+def get_order_list(state: Annotated[dict, InjectedState]) -> str:
+    """Read the current list of orders given to the units.
 
-        # Formatting the tool output to be more readable for the LLM
-        if len(data.players_list) > 0:
-            observation = f"Player's participating within the simulation:"
-            for player in data.players_list:
-                observation += f"{player}, "
-            observation = observation[:-2]
-            observation += "."
-        else:
-            observation = "No players still participate within the simulation. You shouldn't be here."
+    Returns:
+        The list of orders assigned this round.
+    """
+    order_list = state["order_list"]
 
-        return observation
+    # Formatting the tool output to be more readable for the LLM
+    if len(order_list) > 0:
+        observation = f"Currently assigned orders:\r\n"
+        for order in order_list:
+            observation += f"- {describe_order(order)};"
+        observation += "."
+    else:
+        observation = "There are no orders yet, assigned to your units."
 
-    @tool
-    def get_order_list(state: Annotated[dict, InjectedState]) -> str:
-        """Read the current list of orders given to the units.
+    return observation
 
-        Returns:
-            The list of orders assigned this round.
-        """
-        order_list = state["order_list"]
+@tool
+def get_recent_events(state: Annotated[dict, InjectedState]) -> str:
+    """Read the list of all events that took place this round.
 
-        # Formatting the tool output to be more readable for the LLM
-        if len(order_list) > 0:
-            observation = f"Currently assigned orders:\r\n"
-            for order in order_list:
-                observation += f"- {describe_order(order)};"
-            observation += "."
-        else:
-            observation = "There are no orders yet, assigned to your units."
+    Returns:
+        The list of events from this round.    
+    """
+    events = state["recent_events"]
 
-        return observation
+    # Formatting the tool output to be more readable for the LLM
+    if len(events) > 0:
+        observation = "Events that had occurred on this round:\r\n"
+        for event in events:
+            observation += f"- {event},"
+        observation += "."
+    else:
+        observation = "There've been no events since the last round."
 
-    @tool
-    def get_recent_events(state: Annotated[dict, InjectedState]) -> str:
-        """Read the list of all events that took place this round.
-
-        Returns:
-            The list of events from this round.    
-        """
-        events = state["recent_events"]
-
-        # Formatting the tool output to be more readable for the LLM
-        if len(events) > 0:
-            observation = "Events that had occurred on this round:\r\n"
-            for event in events:
-                observation += f"- {event},"
-            observation += "."
-        else:
-            observation = "There've been no events since the last round."
-
-        return observation
-
-    return [RecruitUnit, DelegateGeneral, get_players, get_order_list, get_recent_events] + get_generic_tools(communication)
+    return observation
